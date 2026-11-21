@@ -7,6 +7,8 @@ struct AlbumSyncView: View {
     @State private var immichAlbums: [ImmichAlbumInfo] = []
     @State private var isLoading = false
     @State private var isSyncing = false
+    @State private var isAddingAll = false
+    @State private var isSyncingAll = false
     @State private var syncingAlbumId: String?
     @State private var errorMessage: String?
 
@@ -95,9 +97,19 @@ struct AlbumSyncView: View {
 
     private var mappedAlbumsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Synced Albums")
-                .font(.subheadline.bold())
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Synced Albums")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(isSyncingAll ? "Syncing…" : "Sync All") {
+                    Task { await syncAllAlbums() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isSyncingAll || isSyncing)
+                .help("Sync all mapped albums to Immich")
+            }
 
             ForEach(albumMappings, id: \.id) { mapping in
                 MappedAlbumRow(
@@ -118,6 +130,9 @@ struct AlbumSyncView: View {
                     .font(.subheadline.bold())
                     .foregroundStyle(.secondary)
                 Spacer()
+                let unmappedAlbums = localAlbums.filter { album in
+                    !albumMappings.contains { $0.localAlbumId == album.id }
+                }
                 Button("Load Albums") {
                     Task { await loadLocalAlbums() }
                 }
@@ -125,6 +140,15 @@ struct AlbumSyncView: View {
                 .controlSize(.small)
                 .disabled(isLoading)
                 .help("Fetch available albums from your Photos library")
+                if !unmappedAlbums.isEmpty {
+                    Button(isAddingAll ? "Adding…" : "Add All") {
+                        Task { await addAllAlbumMappings(unmappedAlbums) }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isLoading || isAddingAll)
+                    .help("Add all available albums to Immich")
+                }
             }
 
             if localAlbums.isEmpty {
@@ -136,7 +160,6 @@ struct AlbumSyncView: View {
                 let unmappedAlbums = localAlbums.filter { album in
                     !albumMappings.contains { $0.localAlbumId == album.id }
                 }
-
                 if unmappedAlbums.isEmpty {
                     Text("All albums are already mapped.")
                         .font(.caption)
@@ -192,6 +215,53 @@ struct AlbumSyncView: View {
         }
     }
 
+    private func syncAllAlbums() async {
+        guard appState.hasValidCredentials else {
+            errorMessage = "Configure Immich server credentials first"
+            return
+        }
+
+        isSyncingAll = true
+        defer { isSyncingAll = false }
+
+        let engine = AlbumSyncEngine(baseURL: appState.serverURL, apiKey: appState.apiKey)
+        for mapping in albumMappings {
+            syncingAlbumId = mapping.localAlbumId
+            do {
+                let updated = try await engine.syncAlbum(mapping: mapping)
+                if let idx = albumMappings.firstIndex(where: { $0.id == updated.id }) {
+                    albumMappings[idx] = updated
+                }
+            } catch {
+                syncingAlbumId = nil
+                errorMessage = "Failed to sync \(mapping.localAlbumTitle): \(error.localizedDescription)"
+                return
+            }
+        }
+        syncingAlbumId = nil
+    }
+
+    private func addAllAlbumMappings(_ albums: [AlbumInfo]) async {
+        guard appState.hasValidCredentials else {
+            errorMessage = "Configure Immich server credentials first"
+            return
+        }
+
+        isAddingAll = true
+        defer { isAddingAll = false }
+
+        let engine = AlbumSyncEngine(baseURL: appState.serverURL, apiKey: appState.apiKey)
+        for album in albums {
+            do {
+                let mapping = try await engine.createAlbumMapping(for: album)
+                albumMappings.append(mapping)
+            } catch {
+                errorMessage = "Failed to add \(album.title): \(error.localizedDescription)"
+                return
+            }
+        }
+    }
+    
     private func syncAlbum(_ mapping: AlbumMapping) async {
         guard appState.hasValidCredentials else {
             errorMessage = "Configure Immich server credentials first"
