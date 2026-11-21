@@ -63,7 +63,7 @@ private final class UploadProgressDelegate: NSObject, URLSessionDataDelegate, UR
         }
     }
 
-    // MARK: - URLSessionTaskDelegate
+    // MARK: - URLSessionTask
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
         if totalBytesSent > lastBytesSent {
@@ -238,10 +238,12 @@ actor ImmichClient {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 60   // time between receiving any bytes
             config.timeoutIntervalForResource = 3600 // hard cap for enormous files
+            let delegateQueue = OperationQueue()
+            delegateQueue.maxConcurrentOperationCount = 1
             let uploadSession = URLSession(
                 configuration: config,
                 delegate: delegate,
-                delegateQueue: OperationQueue()
+                delegateQueue: delegateQueue
             )
 
             let task = uploadSession.uploadTask(with: request, from: body)
