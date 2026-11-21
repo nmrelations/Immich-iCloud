@@ -1,0 +1,21 @@
+name: Build DMG
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: |
+          xcodebuild -project Immich-iCloud.xcodeproj -scheme Immich-iCloud test \
+            CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Manual
+      - run: |
+          xcodebuild -project Immich-iCloud.xcodeproj -scheme Immich-iCloud -configuration Release build \
+            CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Manual
+      - run: ./Scripts/build_dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Immich-iCloud-dmg
+          path: "**/*.dmg"
